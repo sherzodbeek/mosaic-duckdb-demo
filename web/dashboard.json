@@ -1,0 +1,232 @@
+{
+  "data": {
+    "orders": {
+      "type": "parquet",
+      "file": "orders.parquet"
+    }
+  },
+  "params": {
+    "pick_score": {
+      "select": "single"
+    },
+    "pick_state": {
+      "select": "single"
+    },
+    "brush": {
+      "select": "crossfilter",
+      "include": [
+        "$pick_score",
+        "$pick_state"
+      ]
+    }
+  },
+  "vconcat": [
+    {
+      "hconcat": [
+        {
+          "input": "menu",
+          "label": "Category",
+          "as": "$brush",
+          "from": "orders",
+          "column": "category"
+        },
+        {
+          "hspace": 16
+        },
+        {
+          "input": "menu",
+          "label": "State",
+          "as": "$brush",
+          "from": "orders",
+          "column": "customer_state"
+        }
+      ]
+    },
+    {
+      "vspace": 8
+    },
+    {
+      "plot": [
+        {
+          "mark": "areaY",
+          "data": {
+            "from": "orders",
+            "filterBy": "$brush"
+          },
+          "curve": "step",
+          "fill": "#3b6fb6",
+          "fillOpacity": 0.85,
+          "x": "purchase_week",
+          "y": {
+            "count": ""
+          }
+        },
+        {
+          "select": "intervalX",
+          "as": "$brush"
+        }
+      ],
+      "xDomain": "Fixed",
+      "yLabel": "Order items / week",
+      "xLabel": null,
+      "width": 860,
+      "height": 170,
+      "marginLeft": 56
+    },
+    {
+      "hconcat": [
+        {
+          "plot": [
+            {
+              "mark": "rectY",
+              "data": {
+                "from": "orders",
+                "filterBy": "$brush"
+              },
+              "fill": {
+                "sql": "CASE WHEN delay_days > 0 THEN 'late' ELSE 'on time' END"
+              },
+              "insetLeft": 0.5,
+              "insetRight": 0.5,
+              "x": {
+                "bin": "delay_days",
+                "steps": 120
+              },
+              "y": {
+                "count": ""
+              }
+            },
+            {
+              "mark": "ruleX",
+              "data": [
+                0
+              ],
+              "stroke": "currentColor",
+              "strokeOpacity": 0.5
+            },
+            {
+              "select": "intervalX",
+              "as": "$brush"
+            }
+          ],
+          "xDomain": "Fixed",
+          "colorDomain": [
+            "on time",
+            "late"
+          ],
+          "colorRange": [
+            "#3b6fb6",
+            "#c4423b"
+          ],
+          "xLabel": "Days vs. estimated delivery date \u2192",
+          "yLabel": "Items",
+          "width": 430,
+          "height": 200,
+          "marginLeft": 56
+        },
+        {
+          "plot": [
+            {
+              "mark": "barY",
+              "data": {
+                "from": "orders",
+                "filterBy": "$brush"
+              },
+              "fill": "#3b6fb6",
+              "x": "review_score",
+              "y": {
+                "count": ""
+              }
+            },
+            {
+              "select": "toggleX",
+              "as": "$pick_score"
+            },
+            {
+              "select": "highlight",
+              "by": "$pick_score"
+            }
+          ],
+          "xDomain": "Fixed",
+          "xLabel": "Review score",
+          "yLabel": "Items",
+          "width": 430,
+          "height": 200,
+          "marginLeft": 56
+        }
+      ]
+    },
+    {
+      "hconcat": [
+        {
+          "plot": [
+            {
+              "mark": "barX",
+              "data": {
+                "from": "orders",
+                "filterBy": "$brush"
+              },
+              "fill": "#3b6fb6",
+              "sort": {
+                "y": "-x",
+                "limit": 12
+              },
+              "x": {
+                "count": ""
+              },
+              "y": "customer_state"
+            },
+            {
+              "select": "toggleY",
+              "as": "$pick_state"
+            },
+            {
+              "select": "highlight",
+              "by": "$pick_state"
+            }
+          ],
+          "xLabel": "Items \u2192",
+          "yLabel": null,
+          "width": 430,
+          "height": 260,
+          "marginLeft": 40
+        },
+        {
+          "plot": [
+            {
+              "mark": "raster",
+              "data": {
+                "from": "orders",
+                "filterBy": "$brush"
+              },
+              "bandwidth": 1,
+              "fill": "density",
+              "pixelSize": 2,
+              "x": "price",
+              "y": "freight_value"
+            },
+            {
+              "select": "intervalXY",
+              "as": "$brush"
+            }
+          ],
+          "xDomain": [
+            0,
+            600
+          ],
+          "yDomain": [
+            0,
+            80
+          ],
+          "colorScale": "sqrt",
+          "colorScheme": "blues",
+          "xLabel": "Item price (BRL) \u2192",
+          "yLabel": "\u2191 Freight (BRL)",
+          "width": 430,
+          "height": 260,
+          "marginLeft": 56
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Olist Mosaic Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d232b; --muted: #5d6673;
+    --line: #e2e0d8; --accent: #3b6fb6; --late: #c4423b; --code: #f1efe8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 22px 24px 8px; max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 900px; }
+  .stats { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  main { display: grid; grid-template-columns: minmax(0, 900px) minmax(280px, 1fr);
+         gap: 16px; padding: 12px 24px 32px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 1200px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  #dashboard { overflow-x: auto; min-height: 400px; }
+  #dashboard select { font: inherit; padding: 2px 4px; margin-left: 6px; }
+  #dashboard label { color: var(--muted); }
+  aside h2 { font-size: 14px; margin: 0 0 2px; }
+  aside .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+  #log { list-style: none; margin: 0; padding: 0; max-height: 860px; overflow-y: auto; }
+  #log li { border-top: 1px solid var(--line); padding: 7px 0; }
+  #log li.fresh { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #fff4c2; } to { background: transparent; } }
+  .meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tag { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--code); color: var(--ink); }
+  .tag.pre { background: #e3ecf8; color: #234a80; }
+  .tag.cube { background: #e7f3e4; color: #2c5e22; }
+  details summary { cursor: pointer; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  pre { background: var(--code); padding: 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-word;
+        font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 6px 0 0; }
+  .err { color: var(--late); white-space: pre-wrap; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "@uwdata/vgplot":      "https://cdn.jsdelivr.net/npm/@uwdata/vgplot@0.32.0/+esm",
+    "@uwdata/mosaic-spec": "https://cdn.jsdelivr.net/npm/@uwdata/mosaic-spec@0.32.0/+esm"
+} }
+</script>
+</head>
+<body>
+<header>
+  <h1>Olist: delivery delays vs. customer satisfaction</h1>
+  <p>Mosaic vgplot + DuckDB-WASM. The whole dataset sits in a database inside this tab; every chart asks it
+     for aggregates via SQL. Drag on the timeline, histogram or density plot, click bars (shift-click for several),
+     or use the menus — every other view re-queries.</p>
+  <div class="stats">
+    <span>Rows in DuckDB: <b id="s-rows">…</b></span>
+    <span>DB + data load: <b id="s-load">…</b></span>
+    <span>Queries sent: <b id="s-q">0</b></span>
+    <span>Bytes returned (all queries): <b id="s-bytes">0</b></span>
+  </div>
+</header>
+<main>
+  <section class="panel" id="dashboard">Loading DuckDB-WASM and orders.parquet…</section>
+  <aside class="panel">
+    <h2>Live SQL log</h2>
+    <p class="hint">Newest first. <span class="tag pre">pre-agg</span> = Mosaic building a materialized
+       "data cube" on first interaction; <span class="tag cube">cube</span> = later brushes answered from it.</p>
+    <ol id="log"></ol>
+  </aside>
+</main>
+
+<script type="module">
+import * as vg from "@uwdata/vgplot";
+import { parseSpec, astToDOM } from "@uwdata/mosaic-spec";
+
+const $ = (id) => document.getElementById(id);
+const logEl = $("log");
+let nQueries = 0, nBytes = 0;
+const fmtBytes = (b) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`;
+
+// Wrap the DuckDB-WASM connector so every query Mosaic sends is timed and logged.
+const wasm = vg.wasmConnector();
+const connector = {
+  async query(q) {
+    const t0 = performance.now();
+    const result = await wasm.query(q);
+    record(q, performance.now() - t0, result?.byteLength ?? 0);
+    return result;
+  }
+};
+
+function record({ sql, type }, ms, bytes) {
+  nQueries += 1; nBytes += bytes;
+  $("s-q").textContent = nQueries.toLocaleString();
+  $("s-bytes").textContent = fmtBytes(nBytes);
+  const li = document.createElement("li");
+  li.className = "fresh";
+  const kind = /CREATE (TEMP )?TABLE IF NOT EXISTS .*preagg/i.test(sql) ? `<span class="tag pre">pre-agg</span>`
+             : /preagg/i.test(sql) ? `<span class="tag cube">cube</span>`
+             : `<span class="tag">${type}</span>`;
+  const first = sql.replace(/\s+/g, " ").trim();
+  li.innerHTML = `<div class="meta">${kind}<span>${ms.toFixed(1)} ms</span><span>${fmtBytes(bytes)}</span></div>
+    <details><summary></summary><pre></pre></details>`;
+  li.querySelector("summary").textContent = first;
+  li.querySelector("pre").textContent = sql;
+  logEl.prepend(li);
+  while (logEl.children.length > 150) logEl.lastChild.remove();
+}
+
+try {
+  const t0 = performance.now();
+  const coordinator = new vg.Coordinator(connector, { logger: null });
+  const api = vg.createAPIContext({ coordinator });
+  const spec = await fetch("dashboard.json").then((r) => r.json());   // exported by dashboard.py
+  const { element } = await astToDOM(parseSpec(spec), { api, baseURL: location.href });
+  $("dashboard").replaceChildren(element);
+  $("s-load").textContent = `${((performance.now() - t0) / 1000).toFixed(2)} s`;
+  const rows = await coordinator.query("SELECT count(*)::INTEGER AS n FROM orders");
+  $("s-rows").textContent = rows.toArray()[0].n.toLocaleString();
+  window.__mosaic = { coordinator, api };   // handy for poking around in DevTools
+} catch (err) {
+  console.error(err);
+  $("dashboard").innerHTML = `<p class="err">Failed to start: ${err?.message ?? err}\n\n` +
+    `Serve this folder over HTTP (python -m http.server) rather than opening the file directly.</p>`;
+}
+</script>
+</body>
+</html>

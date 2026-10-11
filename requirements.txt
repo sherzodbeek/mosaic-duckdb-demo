@@ -1,0 +1,9 @@
+duckdb>=1.4
+pandas>=2.2
+pyarrow>=17
+numpy>=1.26
+vgplot>=0.32
+mosaic-widget>=0.32
+embedding-atlas>=0.25
+umap-learn>=0.5
+scikit-learn>=1.5
